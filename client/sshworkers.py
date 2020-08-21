@@ -7,7 +7,7 @@ Functions for creating workers on a SSH cluster
 import subprocess
 import time
 
-def launch_sshworkers(wrkfile,hosts,pyexec=None,sleep=1,status=False,verb=1):
+def launch_sshworkers(wrkfile,hosts,pyexec=None,sleep=1,status=False,verb=1,clean=False):
   """
   Creates workers (specified by the wrkfile) on
   specified hosts
@@ -20,11 +20,15 @@ def launch_sshworkers(wrkfile,hosts,pyexec=None,sleep=1,status=False,verb=1):
     sleep   - sleep for sleep seconds [1] so workers can get started
     status  - get status of started worker [False]
     verb    - verbosity flag [0 nothing, 1 print basic, 2 print command]
+    clean   - remove all dangling clients before launching [False]
 
   Return (potentially, it would be good to return the status of the worker)
   """
   if(pyexec is None):
     pyexec = '/sep/joseph29/anaconda3/envs/py37/bin/python'
+  if(clean):
+    kill_sshworkers(wrkfile,hosts,pyexec,verb=False)
+    time.sleep(2)
   for ihost in hosts:
     cmd = """ssh -n -f %s "sh -c '%s %s'" """%(ihost,pyexec,wrkfile)
     if(verb):
