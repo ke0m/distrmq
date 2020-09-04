@@ -12,7 +12,7 @@ import subprocess
 
 def launch_pbsworkers(wrkfile,nworkers=1,ncore=16,mem=60,wtime=60,queue='sep',
                       logpath=".",name='worker-',pyexec=None,slpbtw=0.5,
-                      chkrnng=False,qtransfer=True,verb=False):
+                      chkrnng=True,verb=False):
   """
   Creates workers (specified by the wrkfile) on nworkers PBS nodes
 
@@ -28,8 +28,7 @@ def launch_pbsworkers(wrkfile,nworkers=1,ncore=16,mem=60,wtime=60,queue='sep',
     pyexec    - path to the python executable to start the worker
                (default is /data/sep/joseph29/anaconda3/envs/py37/bin/python)
     slpbtw    - sleep in between job submissions [0.5]
-    chkrnng   - do the best we can to ensure workers are running before finising [False]
-    qtransfer - transfer a worker to another queue if it is queued [True]
+    chkrnng   - do the best we can to ensure workers are running before finising [True]
     verb      - verbosity flag [False]
   """
   # Make sure not too many workers
@@ -64,6 +63,40 @@ def launch_pbsworkers(wrkfile,nworkers=1,ncore=16,mem=60,wtime=60,queue='sep',
       ichk += 1
 
   return wrkrs,wrkstatus
+
+def restart_pbsworkers(workers,chkrnng=True,killed=True):
+  """
+  Restarts a provided list of workers
+  Useful if simulations run longer than maximum walltime
+
+  Parameters:
+    workers - a list of running workers
+    chkrnng - checks whether the workers are running [True]
+
+  Returns the restarted workers and their status
+  """
+  if(not killed):
+    # Kill the workers if live
+    kill_pbsworkers(workers,clean=False)
+
+  nworkers = len(workers)
+  for iwrk in range(nworkers):
+    # Submit the worker with the same parameters as before
+    workers[iwrk].submit(restart=True)
+
+  # Get status of all workers
+  wrkstatus = get_workers_status(workers)
+
+  if(chkrnng):
+    nchk = 20; ichk = 0
+    while(wrkstatus.count('R') < nworkers and ichk <= nchk):
+      # Wait for a second and get status again
+      time.sleep(1)
+      wrkstatus = get_workers_status(workers)
+      # Keep track of checks
+      ichk += 1
+
+  return workers,wrkstatus
 
 def get_workers_status(workers):
   """
@@ -243,25 +276,36 @@ class pbsworker:
     self.queue    = None
     self.name     = name
     self.user     = getpass.getuser()
+    # Submission parameters
+    self.__ncore  = None; self.__mem  = None; self.__wtime = None
+    self.__queue  = None; self.__host = None
 
-  def submit(self,ncore=16,mem=60,wtime=60,queue='sep',host=None,sleep=0.5):
+  def submit(self,ncore=16,mem=60,wtime=60,queue='sep',host=None,sleep=0.5,restart=False):
     """
     Submit a PBS worker
 
     Parameters:
-      ncore - number of core for this worker [16]
-      mem   - memory in GB for this worker [60]
-      wtime - wall time for job in minutes [60]
-      queue - worker to which to submit the worker ['sep']
-      host  - submit to a specific host on rcf [None]
-      sleep - amount of time in seconds to wait between submissions [0.5]
+      ncore   - number of core for this worker [16]
+      mem     - memory in GB for this worker [60]
+      wtime   - wall time for job in minutes [60]
+      queue   - worker to which to submit the worker ['sep']
+      host    - submit to a specific host on rcf [None]
+      sleep   - amount of time in seconds to wait between submissions [0.5]
+      restart - flag indicating we are restarting the worker
     """
-    # Convert min time to string for script
-    wtimef = format_mins(wtime)
-
     # Build output log files
     self.outfile = self.logpath + '/' + self.name + self.workerid + '_out.log'
     self.errfile = self.logpath + '/' + self.name + self.workerid + '_err.log'
+
+    if(restart):
+      if(self.__ncore is not None): ncore = self.__ncore
+      if(self.__mem   is not None): mem   = self.__mem
+      if(self.__wtime is not None): wtime = self.__wtime
+      if(self.__queue is not None): queue = self.__queue
+      if(self.__host  is not None): host  = self.__host
+
+    # Convert min time to string for script
+    wtimef = format_mins(wtime)
 
     if(host is None):
       host = '1'
@@ -300,6 +344,13 @@ cd $PBS_O_WORKDIR
     self.queue = queue
     self.nsub += 1
 
+    # Save the submission parameters
+    self.__ncore = ncore
+    self.__mem   = mem
+    self.__wtime = wtime
+    self.__queue = queue
+    self.__host  = host
+
   def delete(self):
     """ Deletes the worker """
     if(self.subid is None):
@@ -318,7 +369,9 @@ cd $PBS_O_WORKDIR
     for line in qsstring:
       if(self.workerid in line):
         self.status = line.split()[9]
-        return self.status
+    #TODO: need to be able to handle multiple status
+    # For now, just returning the last status if there exist multiple
+    return self.status
 
   def id_generator(self,size=6, chars=string.ascii_uppercase + string.digits):
     """ Creates a random string with uppercase letters and integers """
