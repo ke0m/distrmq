@@ -2,7 +2,7 @@
 Functions to launch PBS clients (workers)
 
 @author: Joseph Jennings
-@version: 2020.09.01
+@version: 2020.09.05
 """
 import os, getpass, time
 import random
@@ -128,7 +128,7 @@ def get_workers_status(workers):
 
   return status
 
-def kill_pbsworkers(workers=None,user=None,state=None,clean=True):
+def kill_pbsworkers(workers=None,user=None,state=None,clean=True) -> None:
   """
   Deletes all workers in provided worker list
 
@@ -180,7 +180,7 @@ def kill_pbsworkers(workers=None,user=None,state=None,clean=True):
         sp = subprocess.check_call(cmd,shell=True)
 
 def block_pbs_nodes(nodelist,logpath,queue='default',blocktime=60,sleep=0.5,
-                    verb=False):
+                    verb=False) -> None:
   """
   Blocks faulty PBS nodes
 
@@ -280,7 +280,7 @@ class pbsworker:
     self.__ncore  = None; self.__mem  = None; self.__wtime = None
     self.__queue  = None; self.__host = None
 
-  def submit(self,ncore=16,mem=60,wtime=60,queue='sep',host=None,sleep=0.5,restart=False):
+  def submit(self,ncore=16,mem=60,wtime=60,queue='sep',host=None,sleep=0.5,restart=False) -> None:
     """
     Submit a PBS worker
 
@@ -351,7 +351,7 @@ cd $PBS_O_WORKDIR
     self.__queue = queue
     self.__host  = host
 
-  def delete(self):
+  def delete(self) -> None:
     """ Deletes the worker """
     if(self.subid is None):
       raise Exception("Cannot delete worker if has not been submitted")
@@ -394,8 +394,8 @@ rcfnodes = ['rcf003','rcf005','rcf006','rcf008','rcf009','rcf013',
             'rcf025','rcf028','rcf030','rcf032','rcf041','rcf042',
             'rcf043','rcf044','rcf045','rcf048','rcf049','rcf050',
             'rcf053','rcf055','rcf058','rcf059','rcf060','rcf065',
-            'rcf066','rcf068','rcf069','rcf070','rcf071','rcf073',
-            'rcf074','rcf075','rcf076','rcf078','rcf080','rcf082',
+            'rcf066','rcf068','rcf069','rcf070','rcf071',
+            'rcf074','rcf076','rcf078','rcf080','rcf082',
             'rcf087','rcf092','rcf095','rcf102','rcf104','rcf105',
             'rcf113','rcf114','rcf125','rcf126','rcf127','rcf128',
             'rcf132','rcf134','rcf137','rcf141','rcf142','rcf143',
