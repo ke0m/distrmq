@@ -6,6 +6,7 @@ Functions for creating workers on a SSH cluster
 """
 import subprocess
 import time
+import itertools
 
 def launch_sshworkers(wrkfile,hosts,pyexec=None,sleep=1,status=False,verb=1,clean=False):
   """
@@ -42,6 +43,25 @@ def launch_sshworkers(wrkfile,hosts,pyexec=None,sleep=1,status=False,verb=1,clea
       #TODO: get and return status
   # Sleep to allow workers to start
   time.sleep(sleep)
+
+def create_host_list(hosts,wph=None):
+  """
+  Repeats the host name based on number of workers
+  per host specified
+
+  Parameters:
+    hosts - list of host names
+    wph   - number of times to launch worker on the host (one per host)
+  """
+  if(wph is None):
+    wph = np.ones(len(hosts),dtype='int32')
+  k = 0; olist = []
+  for host in hosts:
+    tlist = list(itertools.chain.from_iterable(itertools.repeat(x,wph[k]) for x in [host]))
+    olist += tlist
+    k += 1
+
+  return olist
 
 def kill_sshworkers(wrkfile,hosts,pyexec=None,status=False,verb=False):
   """
