@@ -1,8 +1,8 @@
 import numpy as np
 import zmq
 from server.distribute import dstr_collect, dstr_sum
+from server.utils import startserver
 from client.slurmworkers import launch_slurmworkers, kill_slurmworkers
-from comm.sendrecv import recv_zipped_pickle, send_next_chunk
 import time
 
 def generate_chunks(n):
@@ -19,28 +19,26 @@ def generate_chunks(n):
 # Start workers
 cfile = "/home/joseph29/projects/distrmq/bench/zeromqex/ompclient.py"
 logpath = "./log"
-wrkrs,status = launch_slurmworkers(cfile,nworkers=20,queues=['twohour'],
+wrkrs,status = launch_slurmworkers(cfile,nworkers=20,queue='twohour',
                                    logpath=logpath,slpbtw=0.5,chkrnng=True)
 
 print(status)
+
+# Bind to socket
+context,socket = startserver()
 
 # Create the chunks
 nimg = status.count('R')
 chunks = generate_chunks(nimg)
 
-# Bind to socket
-context = zmq.Context()
-socket = context.socket(zmq.REP)
-socket.bind("tcp://0.0.0.0:5555")
-
 okeys = ['result','scale']
-output = dstr_collect(okeys,nimg,chunks,socket)
-#output = dstr_sum('scale','result',nimg,chunks,socket,6000000)
+#output = dstr_collect(okeys,nimg,chunks,socket)
+output = dstr_sum('scale','result',nimg,chunks,socket,6000000)
 
-print(output['scale'])
-for k in range(len(output['result'])):
-  print(output['result'][k])
-#print(output)
+#print(output['scale'])
+#for k in range(len(output['result'])):
+#  print(output['result'][k])
+print(output)
 
 kill_slurmworkers(wrkrs)
 
