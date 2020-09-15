@@ -11,7 +11,7 @@ from genutils.ptyprint import create_inttag
 import subprocess
 
 def launch_slurmworkers(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='sep',
-                        logpath=".",name='worker-',pyexec=None,slpbtw=0.5,
+                        block=[],logpath=".",name='worker-',pyexec=None,slpbtw=0.5,
                         chkrnng=False,mode='quiet',verb=False):
   """
   Creates workers (specified by the wrkfile) on nworkers SLURM nodes
@@ -23,6 +23,7 @@ def launch_slurmworkers(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='sep',
     mem       - memory per worker [60 GB]
     wtime     - wall time for worker in minutes [30]
     queue     - a partition or queue for job submission ['sep']
+    block     - nodes to which we want to avoid submitting []
     logpath   - path to a directory for containing log files ['.']
     name      - worker name ['worker']
     pyexec    - path to the python executable to start the worker
@@ -39,11 +40,25 @@ def launch_slurmworkers(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='sep',
 
   if(mode == 'busy'):
     wrkrs,wrkstatus = launch_slurmworkers_busy(wrkfile,nworkers,ncore,mem,wtime,queue,
-                                               logpath,name,pyexec,slpbtw,verb)
+                                               block,logpath,name,pyexec,slpbtw,verb)
 
   elif(mode == 'adapt'):
-    wrkrs,wrkstatus = launch_slurmworkers_adapt(wrkfile,nworkers,ncore,mem,wtime,queue,
-                                                 logpath,name,pyexec,slpbtw,verb)
+    if(type(queue) == list):
+      swrkrs,sstatus = launch_slurmworkers_adapt(wrkfile,nworkers,ncore,mem,wtime,queue[0],
+                                                 block,logpath,name,pyexec,slpbtw,verb)
+      lworkers = nworkers - sstatus.count('R')
+      # If any queued, submit to twohour
+      if(lworkers > 0):
+        twrkrs,twrkstatus = launch_slurmworkers_adapt(wrkfile,lworkers,ncore,mem,wtime,queue[1],
+                                                      block,logpath,name,pyexec,slpbtw,verb)
+        cwrkrs = swrkrs + twrkrs
+        wrkrs,wrkstatus = trim_tsworkers(cwrkrs,nworkers)
+      else:
+        wrkrs     = swrkrs
+        wrkstatus = sstatus
+    else:
+      wrkrs,wrkstatus = launch_slurmworkers_adapt(wrkfile,nworkers,ncore,mem,wtime,queue,
+                                                  block,logpath,name,pyexec,slpbtw,verb)
 
   elif(mode == 'quiet'):
     wrkrs = []
@@ -51,7 +66,7 @@ def launch_slurmworkers(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='sep',
       # Create the worker
       wrkrs.append(slurmworker(cmd,logpath=logpath,name=name,verb=verb))
       # Submit the worker
-      wrkrs[iwrk].submit(ncore=ncore,mem=mem,wtime=wtime,queue=queue,sleep=slpbtw)
+      wrkrs[iwrk].submit(ncore=ncore,mem=mem,wtime=wtime,queue=queue,block=block,sleep=slpbtw)
 
     # Get status of all workers
     wrkstatus = get_workers_status(wrkrs)
@@ -69,7 +84,7 @@ def launch_slurmworkers(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='sep',
   return wrkrs,wrkstatus
 
 def launch_slurmworkers_busy(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='sep',
-                             logpath=".",name='worker-',pyexec=None,slpbtw=0.5,
+                             block=[],logpath=".",name='worker-',pyexec=None,slpbtw=2.0,
                              verb=False):
   """
   Creates workers (specified by the wrkfile) on nworkers SLURM nodes.
@@ -82,6 +97,7 @@ def launch_slurmworkers_busy(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='
     mem       - memory per worker [60 GB]
     wtime     - wall time for worker in minutes [30]
     queue     - a list of queue names to which jobs can be submitted [ ['sep','default'] ]
+    block     - nodes to which we want to avoid submitting []
     logpath   - path to a directory for containing log files ['.']
     name      - worker name ['worker']
     pyexec    - path to the python executable to start the worker
@@ -104,7 +120,7 @@ def launch_slurmworkers_busy(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='
       # Create the worker
       twrkrs.append(slurmworker(cmd,logpath=logpath,name=name,verb=verb))
       # Submit the worker
-      twrkrs[iwrk].submit(ncore=ncore,mem=mem,wtime=wtime,queue=queue,sleep=slpbtw)
+      twrkrs[iwrk].submit(ncore=ncore,mem=mem,wtime=wtime,queue=queue,block=block,sleep=slpbtw)
 
     # Update status of all workers
     twrkstatus = get_workers_status(twrkrs)
@@ -119,8 +135,8 @@ def launch_slurmworkers_busy(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='
   return wrkrs,['R']*nworkers
 
 def launch_slurmworkers_adapt(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue='sep',
-                              logpath=".",name='worker-',pyexec=None,slpbtw=1.0,
-                              chkrnng=False,verb=False):
+                              block=[],logpath=".",name='worker-',pyexec=None,slpbtw=2.0,
+                              verb=False):
   """
   An adaptive mode for launching SLURM workers
   Attempts to launch to number of workers requested
@@ -134,6 +150,7 @@ def launch_slurmworkers_adapt(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue=
     mem       - memory per worker [60 GB]
     wtime     - wall time for worker in minutes [30]
     queue     - a list of queue names to which jobs can be submitted 'sep'
+    block     - nodes to which we want to avoid submitting []
     logpath   - path to a directory for containing log files ['.']
     name      - worker name ['worker']
     pyexec    - path to the python executable to start the worker
@@ -150,14 +167,14 @@ def launch_slurmworkers_adapt(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue=
   for iwrk in range(nworkers):
     # Create the worker
     wrkrs.append(slurmworker(cmd,logpath=logpath,name=name,verb=verb))
-    if(status.count('PD') >= 2 ):
+    if(status.count('PD') >= 2):
       # If two in queue, set status to "To submit"
-      wrkrs[iwrk].set_sub_pars(ncore=ncore,mem=mem,wtime=wtime,queue=queue)
+      wrkrs[iwrk].set_sub_pars(ncore=ncore,mem=mem,wtime=wtime,queue=queue,block=block)
       status.append('TS')
       wrkrs[iwrk].status = status[iwrk]
     else:
       # Otherwise, submit the worker and keep track of status
-      wrkrs[iwrk].submit(ncore=ncore,mem=mem,wtime=wtime,queue=queue,sleep=slpbtw)
+      wrkrs[iwrk].submit(ncore=ncore,mem=mem,wtime=wtime,queue=queue,block=block,sleep=slpbtw)
       # Get the worker status
       status.append(wrkrs[iwrk].get_status(get_squeue()))
 
@@ -166,7 +183,33 @@ def launch_slurmworkers_adapt(wrkfile,nworkers=1,ncore=48,mem=60,wtime=30,queue=
 
   return wrkrs,status
 
-def launch_tsworkers(workers,slpbtw=0.5):
+def trim_tsworkers(wrkrs,ndes):
+  """
+  Trims unnecessary TS workers in the list of workers
+
+  Parameters:
+    wrkrs - a list of workers of mixed status
+    ndes  - number of desired running workers
+
+  Returns a list of trimed workers and their status
+  """
+  nwrkr = len(wrkrs)
+  status = get_workers_status(wrkrs)
+  rwrkrs = []; twrkrs = []
+
+  # First split the R and TS workers
+  for iwrk in range(nwrkr):
+    if(status[iwrk] == 'R' or status[iwrk] == 'PD'):
+      rwrkrs.append(wrkrs[iwrk])
+    elif(status[iwrk] == 'TS'):
+      twrkrs.append(wrkrs[iwrk])
+
+  while(len(rwrkrs) < ndes):
+    rwrkrs.append(twrkrs[iwrk])
+
+  return rwrkrs, get_workers_status(rwrkrs)
+
+def launch_tsworkers(wrkrs,slpbtw=5.0):
   """
   Submits workers that are in a 'TS' state
 
@@ -176,17 +219,18 @@ def launch_tsworkers(workers,slpbtw=0.5):
   Returns an updates status of the workers
   """
   # First get the status of the workers
-  status = get_workers_status(workers)
+  status = get_workers_status(wrkrs)
   if(status.count('PD') >= 2): return status
   else:
-    for iwrk in range(len(workers)):
-      if(status[iwrk] == 'TS'):
+    for iwrk in range(len(wrkrs)):
+      if(status[iwrk] == 'TS' and status.count('PD') < 2):
         wrkrs[iwrk].submit(sleep=slpbtw)
+        status[iwrk] = wrkrs[iwrk].get_status(get_squeue())
 
   # Update the status of the workers
-  return get_workers_status(workers)
+  return get_workers_status(wrkrs)
 
-def restart_workers(workers,limit=True,perc=0.75):
+def restart_slurmworkers(wrkrs,limit=True,perc=0.75,slpbtw=3.0):
   """
   Restart SLURM workers
 
@@ -197,33 +241,55 @@ def restart_workers(workers,limit=True,perc=0.75):
     perc    - percentage of wall time at which to restart
   """
   # First update the status and the times
-  status = get_workers_status(workers)
+  status = get_workers_status(wrkrs)
 
-  for iwrk in range(len(workers)):
+  numpd = 0
+  for iwrk in range(len(wrkrs)):
     if(status[iwrk] == 'R'):
       if(limit):
-        if(workers[iwrk].__rtime/workers[iwrk].__wtime >= perc):
+        # Get the times
+        rtime = wrkrs[iwrk].get_rtime()
+        wtime = wrkrs[iwrk].get_wtime()
+        if(rtime/wtime >= perc):
           # Kill the worker
-          workers[iwrk].delete()
-          # Start it again
-          workers[iwrk].submit(restart=True)
+          wrkrs[iwrk].delete()
+          if(numpd < 2):
+            # Start it again
+            wrkrs[iwrk].submit(restart=True,sleep=slpbtw)
+            status[iwrk] = wrkrs[iwrk].get_status(get_squeue())
+            if(status[iwrk] == 'PD'):
+              numpd += 1
+          else:
+            status[iwrk] == 'TS'
       else:
+        #TODO: check the queue of the worker
+        #      if that queue has more than 2 workers in PD
+        #      don't restart, but set as 'TS'
         # Kill the worker
-        workers[iwrk].delete()
-        # Start it again
-        workers[iwrk].submit(restart=True)
+        wrkrs[iwrk].delete()
+        if(status.count('PD') < 4):
+          # Start it again
+          wrkrs[iwrk].submit(restart=True,sleep=slpbtw)
+          #status[iwrk] = wrkrs[iwrk].get_status(get_squeue())
+        else:
+          status[iwrk] == 'TS'
+      #TODO: set the queue option here
+      status = get_workers_status(wrkrs)
 
   # Return the status of the workers
-  return get_workers_status(workers)
+  return get_workers_status(wrkrs)
 
-def get_workers_status(workers):
+def get_workers_status(workers,qsplit=False):
   """
   Gets the status of a list of SLURM workers
 
   Parameters:
     workers - a list of SLURM workers
+    qsplit  - splits the status between the queues
 
-  Returns a list of workers status
+  Returns a list of workers status.
+  If qsplit is True, returns a dictionary of lists where
+  the keys are the names of the queues ('sep' and 'twohour')
   """
   # Check length of workers
   if(len(workers) == 0):
@@ -232,7 +298,18 @@ def get_workers_status(workers):
   # Get squeue file
   info = get_squeue()
 
-  return [ workers[iwrk].get_status(info) for iwrk in range(len(workers)) ]
+  status = [ workers[iwrk].get_status(info) for iwrk in range(len(workers)) ]
+
+  if(qsplit):
+    for iwrkr in range(len(workers)):
+      sstatus = []; tstatus = []
+      if(workers[iwrkr].get_queue() == 'sep'):
+        sstatus.append(status[iwrkr])
+      elif(workers[iwrkr].get_queue() == 'twohour'):
+        tstatus.append(status[iwrkr])
+    return {"sep:",sstatus,"twohour:",tstatus}
+  else:
+    return status
 
 def get_workers_times(workers):
   """
@@ -336,15 +413,15 @@ class slurmworker:
     self.user     = getpass.getuser()
     self.__rtime  = 0
     # Submission parameters
-    self.__ncore  = None; self.__mem  = None; self.__wtime = None
-    self.__queue  = None
+    self.__ncore  = None; self.__mem   = None; self.__wtime = None
+    self.__queue  = None; self.__block = None
 
-  def set_sub_pars(self,ncore=48,mem=60,wtime=30,queue='sep') -> None:
+  def set_sub_pars(self,ncore=48,mem=60,wtime=30,queue='sep',block=[]) -> None:
     """ Sets the submission parameters (so job can be submitted later) """
     self.__ncore = ncore; self.__mem = mem; self.__wtime = wtime
-    self.__queue = queue
+    self.__queue = queue; self.__block = block
 
-  def submit(self,ncore=48,mem=60,wtime=30,queue='sep',sleep=0.5,restart=False) -> None:
+  def submit(self,ncore=48,mem=60,wtime=30,queue='sep',block=[],sleep=0.5,restart=False) -> None:
     """
     Submit a slurm worker
 
@@ -353,6 +430,7 @@ class slurmworker:
       mem     - memory in GB for this worker [60]
       wtime   - wall time for job in minutes [30]
       queue   - worker to which to submit the worker ['sep']
+      block   - a list of nodes to which we don't want to submit []
       sleep   - amount of time in seconds to wait between submissions [0.5]
       restart - flag inidicating we are restarting the worker
     """
@@ -365,12 +443,14 @@ class slurmworker:
       if(self.__mem   is not None): mem   = self.__mem
       if(self.__wtime is not None): wtime = self.__wtime
       if(self.__queue is not None): queue = self.__queue
+      if(self.__block is not None): block = self.__block
 
     if(restart):
       if(self.__ncore is not None): ncore = self.__ncore
       if(self.__mem   is not None): mem   = self.__mem
       if(self.__wtime is not None): wtime = self.__wtime
       if(self.__queue is not None): queue = self.__queue
+      if(self.__block is not None): block = self.__block
 
     # Convert min time to string for script
     wtimef = format_mins(wtime)
@@ -383,6 +463,7 @@ class slurmworker:
 #SBATCH --mem=%dgb
 #SBATCH --partition=%s
 #SBATCH --time=%s
+#SBATCH --exclude=%s
 #SBATCH --output=%s
 #SBATCH --error=%s
 cd $SLURM_SUBMIT_DIR
@@ -390,7 +471,7 @@ cd $SLURM_SUBMIT_DIR
 echo $SLURMD_NODENAME > %s-node.txt
 %s
 #
-# End of script"""%(self.name+self.workerid,ncore,mem,queue,wtimef,
+# End of script"""%(self.name+self.workerid,ncore,mem,queue,wtimef,",".join(block),
                     self.outfile,self.errfile,self.workerid,self.__cmd)
     # Write the script to file
     script = self.name + self.workerid + ".sh"
@@ -411,6 +492,7 @@ echo $SLURMD_NODENAME > %s-node.txt
     self.__meme  = mem
     self.__wtime = wtime
     self.__queue = queue
+    self.__block = block
 
   def delete(self) -> None:
     """ Deletes the worker """
@@ -442,9 +524,23 @@ echo $SLURMD_NODENAME > %s-node.txt
     elif(self.status == 'TS'):
       self.status = 'TS'
     elif(self.status is None):
-      raise Exception("Something is wrong. Worker not found nor waiting for submission")
+      print("Seems we are encounting a faulty node... Setting as 'TS' for now")
+      self.status = 'TS'
+      #raise Exception("Something is wrong. Worker not found nor waiting for submission")
 
     return self.status
+
+  def get_rtime(self):
+    """ Gets the current job runtime """
+    return self.__rtime
+
+  def get_wtime(self):
+    """ Gets the job wall time """
+    return self.__wtime
+
+  def get_queue(self):
+    """ Gets the queue to which the job has been submitted """
+    return self.__queue
 
   def id_generator(self,size=6, chars=string.ascii_uppercase + string.digits):
     """ Creates a random string with uppercase letters and integers """
