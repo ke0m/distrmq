@@ -209,7 +209,7 @@ def trim_tsworkers(wrkrs,ndes):
 
   return rwrkrs, get_workers_status(rwrkrs)
 
-def launch_tsworkers(wrkrs,slpbtw=5.0):
+def launch_tsworkers(wrkrs,slpbtw=4.0):
   """
   Submits workers that are in a 'TS' state
 
@@ -219,13 +219,16 @@ def launch_tsworkers(wrkrs,slpbtw=5.0):
   Returns an updates status of the workers
   """
   # First get the status of the workers
-  status = get_workers_status(wrkrs)
-  if(status.count('PD') >= 2): return status
+  qinfo,status = get_workers_status(wrkrs,qinfo=True)
+  # Total pending
+  tcnt = qinfo['sep']['PD'] + qinfo['twohour']['PD']
+  if(tcnt >= 4): return status
   else:
     for iwrk in range(len(wrkrs)):
-      if(status[iwrk] == 'TS' and status.count('PD') < 2):
+      wqueue = wrkrs[iwrk].get_queue()
+      if(status[iwrk] == 'TS' and qinfo[wqueue]['PD'] < 2):
         wrkrs[iwrk].submit(sleep=slpbtw)
-        status[iwrk] = wrkrs[iwrk].get_status(get_squeue())
+      qinfo,status  = get_workers_status(wrkrs,qinfo=True)
 
   # Update the status of the workers
   return get_workers_status(wrkrs)
@@ -241,7 +244,8 @@ def restart_slurmworkers(wrkrs,limit=True,perc=0.75,slpbtw=3.0):
     perc    - percentage of wall time at which to restart
   """
   # First update the status and the times
-  status = get_workers_status(wrkrs)
+  qinfoo,status = get_workers_status(wrkrs,qinfo=True)
+  qinfoc = qinfoo
 
   numpd = 0
   for iwrk in range(len(wrkrs)):
@@ -262,34 +266,33 @@ def restart_slurmworkers(wrkrs,limit=True,perc=0.75,slpbtw=3.0):
           else:
             status[iwrk] == 'TS'
       else:
-        #TODO: check the queue of the worker
-        #      if that queue has more than 2 workers in PD
-        #      don't restart, but set as 'TS'
         # Kill the worker
         wrkrs[iwrk].delete()
-        if(status.count('PD') < 4):
-          # Start it again
-          wrkrs[iwrk].submit(restart=True,sleep=slpbtw)
-          #status[iwrk] = wrkrs[iwrk].get_status(get_squeue())
+        wqueue = wrkrs[iwrk].get_queue()
+        if(qinfoc[wqueue]['PD'] > qinfoo[wqueue]['PD']):
+          if(qinfoc[wqueue] >= 2):
+            status[iwrk] = 'TS'
+            wrkrs[iwrk].status = 'TS'
+          else:
+            wrkrs[iwrk].submit(restart=True,sleep=slpbtw)
         else:
-          status[iwrk] == 'TS'
-      #TODO: set the queue option here
-      status = get_workers_status(wrkrs)
+            wrkrs[iwrk].submit(restart=True,sleep=slpbtw)
+
+    qinfoo = qinfoc
+    qinfoc,status = get_workers_status(wrkrs,qinfo=True)
 
   # Return the status of the workers
   return get_workers_status(wrkrs)
 
-def get_workers_status(workers,qsplit=False):
+def get_workers_status(workers,qinfo=False):
   """
   Gets the status of a list of SLURM workers
 
   Parameters:
     workers - a list of SLURM workers
-    qsplit  - splits the status between the queues
+    qinfo   - provides information on the queues
 
   Returns a list of workers status.
-  If qsplit is True, returns a dictionary of lists where
-  the keys are the names of the queues ('sep' and 'twohour')
   """
   # Check length of workers
   if(len(workers) == 0):
@@ -300,14 +303,24 @@ def get_workers_status(workers,qsplit=False):
 
   status = [ workers[iwrk].get_status(info) for iwrk in range(len(workers)) ]
 
-  if(qsplit):
+  if(qinfo):
+    sstatus = []; tstatus = []
     for iwrkr in range(len(workers)):
-      sstatus = []; tstatus = []
-      if(workers[iwrkr].get_queue() == 'sep'):
+      wqueue = workers[iwrkr].get_queue()
+      if(wqueue == 'sep'):
         sstatus.append(status[iwrkr])
-      elif(workers[iwrkr].get_queue() == 'twohour'):
+      elif(wqueue == 'twohour'):
         tstatus.append(status[iwrkr])
-    return {"sep:",sstatus,"twohour:",tstatus}
+    # Counts for sep queue
+    sr  = sstatus.count('R' ); spd = sstatus.count('PD')
+    sts = sstatus.count('TS'); scg = sstatus.count('CG')
+    sdict = {'R':sr,'PD':spd,'TS':sts,'CG':scg}
+    # Counts for twohour queue
+    tr  = tstatus.count('R' ); tpd = tstatus.count('PD')
+    tts = tstatus.count('TS'); tcg = tstatus.count('CG')
+    tdict = {'R':tr,'PD':tpd,'TS':tts,'CG':tcg}
+    # qinfo and status
+    return {"sep":sdict,"twohour":tdict},status
   else:
     return status
 

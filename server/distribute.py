@@ -174,9 +174,10 @@ def dstr_sum_adapt(ckey,rkey,n,gen,socket,shape,workers,interval=5,
     itime = (time.time() - btime)/60.0
     # Attempt to get more workers
     if(itime >= interval):
-      launch_tsworkers(workers)
+      status = launch_tsworkers(workers)
       # Restart the time
       btime = time.time()
+      if(verb): f.write("Worker status: %s\n"%(','.join(status)))
 
   if(verb): printprogress(rkey+":",len(nouts),n,file=f)
   if(logfile is not None): f.close()
