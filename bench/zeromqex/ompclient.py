@@ -1,6 +1,7 @@
-import zmq
+import zmq, os
 from comm.sendrecv import notify_server, send_zipped_pickle, recv_zipped_pickle
 from oway.ompwrapper import ompwrap
+import datetime
 
 # Connect to socket
 context = zmq.Context()

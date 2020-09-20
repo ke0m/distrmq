@@ -9,7 +9,7 @@ import pickle
 import zlib
 import types
 
-def send_next_chunk(socket,gen,flags=0, protocol=-1):
+def send_next_chunk(socket,gen,flags=0, protocol=-1, zlevel=-1):
   """
   Sends the next chunk to the workers
 
@@ -19,7 +19,7 @@ def send_next_chunk(socket,gen,flags=0, protocol=-1):
   if(isinstance(gen,types.GeneratorType)):
     try:
       chunk = next(gen)
-      send_zipped_pickle(socket,chunk)
+      send_zipped_pickle(socket,chunk,protocol=protocol,zlevel=zlevel)
     except StopIteration:
       chunk = {}
       send_zipped_pickle(socket,chunk)
@@ -37,10 +37,10 @@ def notify_server(socket):
   mydict = dict({'msg': "available"})
   send_zipped_pickle(socket,mydict)
 
-def send_zipped_pickle(socket, obj, flags=0, protocol=-1):
+def send_zipped_pickle(socket, obj, flags=0, protocol=-1, zlevel=-1):
   """pickle an object, and zip the pickle before sending it"""
   p = pickle.dumps(obj, protocol)
-  z = zlib.compress(p)
+  z = zlib.compress(p,level=zlevel)
   return socket.send(z, flags=flags)
 
 def recv_zipped_pickle(socket, flags=0, protocol=-1):
