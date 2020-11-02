@@ -1,8 +1,8 @@
 from comm.sendrecv import recv_zipped_pickle, send_next_chunk
 import numpy as np
-import datetime
+from genutils.ptyprint import printprogress
 
-def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1):
+def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1,verb=False):
   """
   Distributes data to workers
   and collects the results based on the keys passed
@@ -23,13 +23,18 @@ def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1):
   for ikey in keys: odict[ikey] = []
   # Control key
   ckey = keys[0]
+  # Verbosity
+  old = -1
   # Send and collect work
   while(len(odict[ckey]) < n):
+    if(verb):
+      if(old < len(odict[ckey])):
+        printprogress(ckey+":",len(odict[ckey]),n)
+        old = len(odict[ckey])
     # Talk to client
     rdict = recv_zipped_pickle(socket)
     if(rdict['msg'] == "available"):
       # Send work
-      print("Sending",flush=True)
       send_next_chunk(socket,gen,protocol,zlevel)
     elif(rdict['msg'] == "result"):
       # Save the results
@@ -37,6 +42,8 @@ def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1):
         odict[ikey].append(rdict[ikey])
       # Send a "thank you" back
       socket.send(b"")
+
+  if(verb): printprogress(ckey+":",len(odict[ckey]),n)
 
   return odict
 
