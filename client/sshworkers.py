@@ -28,7 +28,8 @@ def launch_sshworkers(wrkfile,hosts,pyexec=None,sleep=1,status=False,verb=1,clea
   if(pyexec is None):
     pyexec = '/sep/joseph29/anaconda3/envs/py37/bin/python'
   if(clean):
-    kill_sshworkers(wrkfile,hosts,pyexec,verb=False)
+    uhosts = list(set(hosts))
+    kill_sshworkers(wrkfile,uhosts,pyexec,verb=False)
     time.sleep(2)
   for ihost in hosts:
     cmd = """ssh -n -f %s "sh -c '%s %s'" """%(ihost,pyexec,wrkfile)
