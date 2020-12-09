@@ -12,7 +12,7 @@ import subprocess
 
 def launch_pbsworkers(wrkfile,nworkers=1,ncore=16,mem=60,wtime=60,queue='sep',
                       logpath=".",name='worker-',pyexec=None,slpbtw=0.5,
-                      chkrnng=True,verb=False):
+                      chkrnng=True,ignore=[],verb=False):
   """
   Creates workers (specified by the wrkfile) on nworkers PBS nodes
 
@@ -29,6 +29,7 @@ def launch_pbsworkers(wrkfile,nworkers=1,ncore=16,mem=60,wtime=60,queue='sep',
                (default is /data/sep/joseph29/anaconda3/envs/py37/bin/python)
     slpbtw    - sleep in between job submissions [0.5]
     chkrnng   - do the best we can to ensure workers are running before finising [True]
+    ignore    - ignore these worker-ids [ [] ]
     verb      - verbosity flag [False]
   """
   # Make sure not too many workers
@@ -50,7 +51,7 @@ def launch_pbsworkers(wrkfile,nworkers=1,ncore=16,mem=60,wtime=60,queue='sep',
     wrkrs[iwrk].submit(ncore=ncore,mem=mem,wtime=wtime,queue=queue,host=rcfnodesr[iwrk],sleep=slpbtw)
 
   # Get status of all workers
-  wrkstatus = get_workers_status(wrkrs)
+  wrkstatus = get_workers_status(wrkrs,ignore)
 
   if(chkrnng):
     # First get status of workers
@@ -58,20 +59,21 @@ def launch_pbsworkers(wrkfile,nworkers=1,ncore=16,mem=60,wtime=60,queue='sep',
     while(wrkstatus.count('R') < nworkers and ichk <= nchk):
       # Wait for a second and get status again
       time.sleep(1)
-      wrkstatus = get_workers_status(wrkrs)
+      wrkstatus = get_workers_status(wrkrs,ignore)
       # Keep track of checks
       ichk += 1
 
   return wrkrs,wrkstatus
 
-def restart_pbsworkers(workers,chkrnng=True,killed=True):
+def restart_pbsworkers(workers,chkrnng=True,killed=True,ignore=[]):
   """
   Restarts a provided list of workers
   Useful if simulations run longer than maximum walltime
 
   Parameters:
     workers - a list of running workers
-    chkrnng - checks whether the workers are running [True]
+    chkrnng - checks whether the workers are running [True]a
+    ignore  - ignore these workers [ [] ]
 
   Returns the restarted workers and their status
   """
@@ -85,25 +87,26 @@ def restart_pbsworkers(workers,chkrnng=True,killed=True):
     workers[iwrk].submit(restart=True)
 
   # Get status of all workers
-  wrkstatus = get_workers_status(workers)
+  wrkstatus = get_workers_status(workers,ignore)
 
   if(chkrnng):
     nchk = 20; ichk = 0
     while(wrkstatus.count('R') < nworkers and ichk <= nchk):
       # Wait for a second and get status again
       time.sleep(1)
-      wrkstatus = get_workers_status(workers)
+      wrkstatus = get_workers_status(workers,ignore)
       # Keep track of checks
       ichk += 1
 
   return workers,wrkstatus
 
-def get_workers_status(workers):
+def get_workers_status(workers,ignore=[]):
   """
   Gets the status of a list of workers
 
   Parameters:
     workers - a list of workers
+    ignore  - ignore these worker ids
 
   Returns a list of workers status
   """
@@ -124,11 +127,14 @@ def get_workers_status(workers):
   status = []
   for wrkr in workers:
     # Get the status of each worker
-    status.append(wrkr.get_status(info))
+    if(wrkr.workerid in ignore):
+      continue
+    else:
+      status.append(wrkr.get_status(info))
 
   return status
 
-def kill_pbsworkers(workers=None,user=None,state=None,clean=True) -> None:
+def kill_pbsworkers(workers=None,user=None,state=None,clean=True,ignore=[]) -> None:
   """
   Deletes all workers in provided worker list
 
@@ -137,12 +143,15 @@ def kill_pbsworkers(workers=None,user=None,state=None,clean=True) -> None:
     user    - kill all workers associated with user
     state   - state of workers to kill ('R' or 'Q')
     clean   - clean up qstat, node and log files
+    ignore  - ignore these workers [ [] ]
   """
   if(workers is not None):
     if(len(workers) == 0):
       raise Exception("Length of workers must be > 0")
 
     for wrkr in workers:
+      if(wrkr.workerid in ignore):
+        continue
       # Get the job id and remove the associated files
       if(clean):
         wid = wrkr.workerid
@@ -165,11 +174,18 @@ def kill_pbsworkers(workers=None,user=None,state=None,clean=True) -> None:
     del info[0:5]
     # Kill all workers
     for line in info:
+      skip = False
       # Get the submission id
       subid = line.split()[0].split('.')[0]
+      # Get the state
+      status = line.split()[9]
+      # Ignore workers if specified
+      for ig in ignore:
+        if(ig in line): skip = True
+      if(skip): continue
+      if(status == 'C'): continue
       if(state is not None):
         # Get the state
-        status = line.split()[9]
         if(status == state):
           # Cancel the worker
           cmd = 'qdel %s'%(subid)
@@ -273,7 +289,6 @@ class pbsworker:
     self.nsub     = 0
     self.outfile  = None
     self.errfile  = None
-    self.queue    = None
     self.name     = name
     self.user     = getpass.getuser()
     # Submission parameters
@@ -341,7 +356,6 @@ cd $PBS_O_WORKDIR
     time.sleep(sleep)
 
     # Keep track of submissions
-    self.queue = queue
     self.nsub += 1
 
     # Save the submission parameters
@@ -389,15 +403,15 @@ def format_mins(mins):
   return "%s:%s:%s"%(horsf,minsf,secsf)
 
 # Nodes available for computation
-rcfnodes = ['rcf003','rcf005','rcf006','rcf008','rcf009','rcf013',
-            'rcf014','rcf015','rcf017','rcf019','rcf022',
-            'rcf025','rcf028','rcf030','rcf032','rcf041','rcf042',
-            'rcf043','rcf044','rcf045','rcf048','rcf049','rcf050',
-            'rcf053','rcf055','rcf058','rcf059','rcf060','rcf065',
-            'rcf066','rcf068','rcf069','rcf070','rcf071',
-            'rcf074','rcf076','rcf078','rcf080','rcf082',
-            'rcf087','rcf092','rcf095','rcf102','rcf104','rcf105',
-            'rcf113','rcf114','rcf125','rcf126','rcf127','rcf128',
-            'rcf132','rcf134','rcf137','rcf141','rcf142','rcf143',
+rcfnodes = ['rcf002','rcf003','rcf005','rcf006','rcf008','rcf009','rcf013',
+            'rcf014','rcf015','rcf017','rcf019','rcf022','rcf023','rcf025',
+            'rcf027','rcf028','rcf030','rcf032','rcf041','rcf042',
+            'rcf043','rcf044','rcf045','rcf046','rcf048','rcf049',
+            'rcf050','rcf053','rcf055','rcf058','rcf059','rcf060',
+            'rcf065','rcf066','rcf068','rcf069','rcf070','rcf071',
+            'rcf072','rcf074','rcf076','rcf078','rcf080','rcf082',
+            'rcf087','rcf095','rcf102','rcf104',
+            'rcf113','rcf114','rcf125','rcf127','rcf128',
+            'rcf132','rcf134','rcf136','rcf137','rcf142','rcf143',
             'rcf145','rcf146']
 
