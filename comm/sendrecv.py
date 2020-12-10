@@ -9,6 +9,8 @@ import pickle
 import zlib
 import types
 
+#TODO: add the ability to split an array along the last axis
+#      and send each element of that axis individually
 def send_next_chunk(socket,gen,flags=0, protocol=-1):
   """
   Sends the next chunk to the workers
