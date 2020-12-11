@@ -74,7 +74,7 @@ def dstr_sum(ckey,rkey,n,gen,socket,shape,protocol=-1,zlevel=-1):
     rdict = recv_zipped_pickle(socket)
     if(rdict['msg'] == "available"):
       # Send work
-      send_next_chunk(socket,gen,protocol,zlevel)
+      send_next_chunk(socket,gen,protocol=protocol,zlevel=zlevel)
     elif(rdict['msg'] == "result"):
       nouts.append(rdict[ckey])
       out += rdict[rkey]
