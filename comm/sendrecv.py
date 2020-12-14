@@ -51,3 +51,9 @@ def recv_zipped_pickle(socket, flags=0, protocol=-1):
   p = zlib.decompress(z)
   return pickle.loads(p)
 
+def send_zipped_extended_image(socket, obj, flags=0, protocol=-1):
+  """pickles an object with an extended image and zips it befire sending"""
+  # Get the size of the extended image
+  # Loop over each index and send the index with the image
+  pass
+
