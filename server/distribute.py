@@ -2,7 +2,7 @@ from comm.sendrecv import recv_zipped_pickle, send_next_chunk
 import numpy as np
 from genutils.ptyprint import printprogress
 
-def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1,verb=False):
+def dstr_collect(keys,n,gen,socket,zlevel=-1,verb=False):
   """
   Distributes data to workers
   and collects the results based on the keys passed
@@ -12,8 +12,7 @@ def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1,verb=False):
     n        - length of input generator
     gen      - an input generator that gives a chunk
     socket   - a ZMQ socket
-    protocol - pickling protocol [-1]
-    zlevel   - level of compression [-1]
+    zlevel   - level of compression [0]
 
   Returns a dictionary with keys of keys and values
   returned by the client
@@ -35,7 +34,7 @@ def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1,verb=False):
     rdict = recv_zipped_pickle(socket)
     if(rdict['msg'] == "available"):
       # Send work
-      send_next_chunk(socket,gen,protocol,zlevel)
+      send_next_chunk(socket,gen,zlevel)
     elif(rdict['msg'] == "result"):
       # Save the results
       for ikey in keys:
@@ -47,7 +46,7 @@ def dstr_collect(keys,n,gen,socket,protocol=-1,zlevel=-1,verb=False):
 
   return odict
 
-def dstr_sum(ckey,rkey,n,gen,socket,shape,protocol=-1,zlevel=-1):
+def dstr_sum(ckey,rkey,n,gen,socket,shape,ikey='idx',zlevel=-1):
   """
   Distributes data to workers
   and sums over the collected results
@@ -59,8 +58,8 @@ def dstr_sum(ckey,rkey,n,gen,socket,shape,protocol=-1,zlevel=-1):
     gen      - an input generator that gives a junk
     socket   - a ZMQ socket
     shape    - the shape of the output array
-    protocol - pickling protocol [-1]
-    zlevel   - level of compression [-1]
+    ikey     - key for sending the index for chunked transfer ['idx']
+    zlevel   - level of compression [0]
 
   Returns:
     Sums over the work returned by workers to give an
@@ -68,16 +67,23 @@ def dstr_sum(ckey,rkey,n,gen,socket,shape,protocol=-1,zlevel=-1):
   """
   # Create the outputs
   out = np.zeros(shape,dtype='float32')
+  chunks,nhx = False,1
+  if(len(shape) > 3):
+    chunks = True
+    nhx = shape[1]
   nouts = []
   # Send and sum over collected results
-  while(len(nouts) < n):
+  while(len(nouts)//nhx < n):
     rdict = recv_zipped_pickle(socket)
     if(rdict['msg'] == "available"):
       # Send work
-      send_next_chunk(socket,gen,protocol=protocol,zlevel=zlevel)
+      send_next_chunk(socket,gen,zlevel=zlevel)
     elif(rdict['msg'] == "result"):
       nouts.append(rdict[ckey])
-      out += rdict[rkey]
+      if(chunks):
+        out[0,rdict[ikey]] += rdict[rkey]
+      else:
+        out += rdict[rkey]
       socket.send(b"")
 
   return out
